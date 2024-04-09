@@ -1,3 +1,7 @@
+// I DONT KNOW IF THIS WORKS
+// I haven't ran this file yet.
+// I tested the C in tests/capi.rs via cargo ctest.
+
 #include "example_project/example_project.h"
 #include <stdio.h>
 
