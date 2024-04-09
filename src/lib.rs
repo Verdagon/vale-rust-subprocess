@@ -26,6 +26,7 @@ const_assert_eq!(std::mem::size_of::<String>(), String_SIZE);
 pub use crate::sizes::constants::OsString_SIZE;
 #[repr(C)]
 pub struct OsString_extern([u8; OsString_SIZE]);
+const_assert_eq!(std::mem::size_of::<OsString>(), OsString_SIZE);
 
 // Tried:
 // #[repr(C)]
@@ -40,17 +41,25 @@ pub struct OsString_extern([u8; OsString_SIZE]);
 //   cannot cast thin pointer `*const OsString_ref_slice_extern` to fat pointer `*const [&OsString]`
 // So settled on the above with the integer.
 
+pub use crate::sizes::constants::Vec_Ref_OsString_SIZE;
 #[repr(C)]
 pub struct Vec_Ref_OsString_extern([u8; std::mem::size_of::<Vec<&OsString>>()]);
+const_assert_eq!(std::mem::size_of::<Vec<&OsString>>(), Vec_Ref_OsString_SIZE);
 
+pub use crate::sizes::constants::PopenConfig_SIZE;
 #[repr(C)]
 pub struct PopenConfig_extern([u8; std::mem::size_of::<PopenConfig>()]);
+const_assert_eq!(std::mem::size_of::<PopenConfig>(), PopenConfig_SIZE);
 
+pub use crate::sizes::constants::Popen_SIZE;
 #[repr(C)]
 pub struct Popen_extern([u8; std::mem::size_of::<Popen>()]);
+const_assert_eq!(std::mem::size_of::<Popen>(), Popen_SIZE);
 
+pub use crate::sizes::constants::Result_Popen_PopenError_SIZE;
 #[repr(C)]
 pub struct Result_Popen_PopenError_extern([u8; std::mem::size_of::<Result<Popen, PopenError>>()]);
+const_assert_eq!(std::mem::size_of::<Result<Popen, PopenError>>(), Result_Popen_PopenError_SIZE);
 
 
 pub fn add(left: usize, right: usize) -> usize {
