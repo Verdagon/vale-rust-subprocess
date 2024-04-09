@@ -1,11 +1,16 @@
+use static_assertions::const_assert_eq;
 use std::ffi::OsString;
 use subprocess::PopenConfig;
 use subprocess::{Popen, PopenError};
 use std::mem::MaybeUninit;
 use std::mem;
+// mod sizes;
+// use sizes::String_extern_SIZE;
+// pub const String_extern_SIZE: usize = 24;
 
-// had to use OsString instead of OsStr
+// include!(concat!(env!("OUT_DIR"), "/sizes.rs"));
 
+pub mod sizes;
 
 // Tried:
 //   pub struct Str_extern{[u8; std::mem::size_of::<str>()]);
@@ -13,11 +18,14 @@ use std::mem;
 // So we'll go with String for now.
 // If we really want str, we might try usize + *const u8, though C/Vale will
 // need to make sure the chars remain there while the pointer is alive.
+pub use crate::sizes::constants::String_SIZE;
 #[repr(C)]
-pub struct String_extern([u8; std::mem::size_of::<String>()]);
+pub struct String_extern([u8; String_SIZE]);
+const_assert_eq!(std::mem::size_of::<String>(), String_SIZE);
 
+pub use crate::sizes::constants::OsString_SIZE;
 #[repr(C)]
-pub struct OsString_extern([u8; std::mem::size_of::<OsString>()]);
+pub struct OsString_extern([u8; OsString_SIZE]);
 
 // Tried:
 // #[repr(C)]
@@ -33,7 +41,7 @@ pub struct OsString_extern([u8; std::mem::size_of::<OsString>()]);
 // So settled on the above with the integer.
 
 #[repr(C)]
-pub struct Vec_Ref_OsString_extern([u8; std::mem::size_of::<Vec<OsString>>()]);
+pub struct Vec_Ref_OsString_extern([u8; std::mem::size_of::<Vec<&OsString>>()]);
 
 #[repr(C)]
 pub struct PopenConfig_extern([u8; std::mem::size_of::<PopenConfig>()]);
