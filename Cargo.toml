@@ -1,0 +1,7 @@
+[package]
+name = "vale-rust-subprocess"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+subprocess = "0.2.9"
