@@ -6,6 +6,16 @@ use std::mem;
 
 // had to use OsString instead of OsStr
 
+
+// Tried:
+//   pub struct Str_extern{[u8; std::mem::size_of::<str>()]);
+// but got                                          ^^^ doesn't have a size known at compile-time
+// So we'll go with String for now.
+// If we really want str, we might try usize + *const u8, though C/Vale will
+// need to make sure the chars remain there while the pointer is alive.
+#[repr(C)]
+pub struct String_extern([u8; std::mem::size_of::<String>()]);
+
 #[repr(C)]
 pub struct OsString_extern([u8; std::mem::size_of::<OsString>()]);
 
@@ -45,12 +55,65 @@ mod tests {
 
     #[test]
     fn it_works() {
-        let program_name = OsString::from("/bin/cat");
-        let arg1 = OsString::from("/Users/verdagon/hello.txt");
-        let argv: Vec<&OsString> = vec![&program_name, &arg1];
-        let mut popen_config = PopenConfig::default();
+        // We start with these String instances.
+        // This isn't quite realistic, we'll still need to create
+        // these from the C side (TODO).
+        let program_name_string = String::from("/bin/cat");
+        let arg1_string = String::from("/Users/verdagon/hello.txt");
 
-        // Should wrap it first maybe?
+        // Create program_name OsString from String
+        //   let program_name_osstring: OsString = arg1.into();
+        let mut program_name_osstring_uninit: MaybeUninit<OsString> =
+            unsafe { MaybeUninit::uninit() };
+        String_into_OsString_extern(
+            unsafe { mem::transmute(&program_name_string) },
+            program_name_osstring_uninit.as_mut_ptr() as *mut OsString_extern);
+        let program_name_osstring: OsString =
+            unsafe { program_name_osstring_uninit.assume_init() };
+
+
+        // Create arg1 OsString from String
+        //   let arg1_osstring: OsString = arg1.into();
+        let mut arg1_osstring_uninit: MaybeUninit<OsString> =
+            unsafe { MaybeUninit::uninit() };
+        String_into_OsString_extern(
+            unsafe { mem::transmute(&arg1_string) },
+            arg1_osstring_uninit.as_mut_ptr() as *mut OsString_extern);
+        let arg1_osstring: OsString =
+            unsafe { arg1_osstring_uninit.assume_init() };
+
+        // Create vec
+        //   let argv: Vec<&OsString> = Vec::new();
+        let mut argv_uninit: MaybeUninit<Vec<&OsString>> =
+            unsafe { MaybeUninit::uninit() };
+        Vec_Ref_OsString_new(
+            argv_uninit.as_mut_ptr() as *mut Vec_Ref_OsString_extern);
+        let mut argv: Vec<&OsString> =
+            unsafe { argv_uninit.assume_init() };
+
+        // Push first element into argv vec
+        //   argv.push(&program_name_osstring)
+        Vec_Ref_OsString_push(
+          unsafe { mem::transmute(&mut argv) },
+          unsafe { mem::transmute(&program_name_osstring) });
+
+        // Push second element into argv vec
+        //   argv.push(&arg1_osstring)
+        Vec_Ref_OsString_push(
+          unsafe { mem::transmute(&mut argv) },
+          unsafe { mem::transmute(&arg1_osstring) });
+
+        // Make default PopenConfig
+        //   let popen_config = PopenConfig::default();
+        let mut popen_config_uninit: MaybeUninit<PopenConfig> =
+            unsafe { MaybeUninit::uninit() };
+        PopenConfig_default_extern(
+            popen_config_uninit.as_mut_ptr() as *mut PopenConfig_extern);
+        let mut popen_config: PopenConfig =
+            unsafe { popen_config_uninit.assume_init() };
+
+        // Call Popen::create
+        //   let result = Popen::create(argv, popen_config);
         let argv_raw: *const Vec_Ref_OsString_extern =
             unsafe { mem::transmute(&argv) };
         let config_raw: *mut PopenConfig_extern =
@@ -59,26 +122,85 @@ mod tests {
             unsafe { MaybeUninit::uninit() };
         let result_raw: *mut Result_Popen_PopenError_extern =
             result_uninit.as_mut_ptr() as *mut Result_Popen_PopenError_extern;
-        create_extern(argv_raw, config_raw, result_raw);
+        Popen_create_extern(argv_raw, config_raw, result_raw);
         // popen_config has been moved, can't use it anymore
 
+        // Make sure it's okay. Not quite realistic as we need to call
+        // is_ok from the C side (TODO).
         let result = unsafe { result_uninit.assume_init() };
         assert_eq!(result.is_ok(), true);
     }
 }
 
+#[no_mangle]
+pub extern "C" fn PopenConfig_default_extern(
+    result_raw: *mut PopenConfig_extern,
+) {
+    let result_ptr: *mut PopenConfig =
+        unsafe { mem::transmute(result_raw) };
+    let result: PopenConfig =
+        PopenConfig::default();
+    unsafe { std::ptr::write(result_ptr, result) };
+}
 
 #[no_mangle]
-pub extern "C" fn create_extern(
+pub extern "C" fn Vec_Ref_OsString_new(
+    result_raw: *mut Vec_Ref_OsString_extern,
+) {
+    let result_ptr: *mut Vec<&OsString> =
+        unsafe { mem::transmute(result_raw) };
+    let result: Vec<&OsString> =
+        Vec::new();
+    unsafe { std::ptr::write(result_ptr, result) };
+}
+
+#[no_mangle]
+pub extern "C" fn Vec_Ref_OsString_push(
+    self_raw: *mut Vec_Ref_OsString_extern,
+    element_raw: *const OsString_extern,
+) {
+    let self_ptr: *mut Vec<&OsString> =
+        unsafe { mem::transmute(self_raw) };
+    let self_ref: &mut Vec<&OsString> =
+        unsafe { mem::transmute(self_ptr) };
+    let element_ptr: *const OsString =
+        unsafe { mem::transmute(element_raw) };
+    let element_ref: &OsString =
+        unsafe { mem::transmute(element_ptr) };
+    self_ref.push(element_ref);
+}
+
+#[no_mangle]
+pub extern "C" fn String_into_OsString_extern(
+    self_raw: *const String_extern,
+    result_raw: *mut OsString_extern,
+) {
+    let self_ref: &OsString =
+        unsafe { mem::transmute(self_raw) };
+    let result_ptr: *mut OsString =
+        unsafe { mem::transmute(result_raw) };
+    let result = 
+        self_ref.into();
+    unsafe { std::ptr::write(result_ptr, result) };
+}
+
+
+#[no_mangle]
+pub extern "C" fn Popen_create_extern(
     argv_raw: *const Vec_Ref_OsString_extern,
     config_raw: *mut PopenConfig_extern,
     result_raw: *mut Result_Popen_PopenError_extern,
 ) {
-    let argv_ref: &Vec<&OsString> = unsafe { mem::transmute(argv_raw) };
-    // let config_ref: &mut PopenConfig = unsafe { mem::transmute(config_raw) };
-    let config_ptr: *mut PopenConfig = unsafe { mem::transmute(config_raw) };
-    let config: PopenConfig = unsafe { std::ptr::read(config_ptr) };
-    let result_ref: &mut Result<Popen, PopenError> = unsafe { &mut*(result_raw as *mut Result<Popen, PopenError>) };
-    *result_ref = Popen::create(argv_ref, config);
+    let argv_ref: &Vec<&OsString> =
+        unsafe { mem::transmute(argv_raw) };
+    let config_ptr: *mut PopenConfig =
+        unsafe { mem::transmute(config_raw) };
+    let config: PopenConfig =
+        unsafe { std::ptr::read(config_ptr) };
+    let result_ptr: *mut Result<Popen, PopenError> =
+        unsafe { mem::transmute(result_raw) };
+    let result =
+        Popen::create(argv_ref, config);
+    unsafe { std::ptr::write(result_ptr, result) };
 }
 
