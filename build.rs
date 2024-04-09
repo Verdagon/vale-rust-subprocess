@@ -20,11 +20,16 @@ fn main() {
         panic!("Build target does not match host architecture or OS.");
     }
 
-    // let out_dir = env::var("OUT_DIR").unwrap();
+    // It's probably not healthy to have build.rs generate something
+    // inside the src directory like this...
+    // I tried generating it in the output directory, so lib.rs could do:
+    //   include!(concat!(env!("OUT_DIR"), "/constants.rs"));
+    // but then cbindgen couldn't see it.
+    // TODO: Maybe there's a way to have build.rs generate to somewhere that
+    // cbindgen can see it, that's not in the src directory?
     let out_dir = env::var("CARGO_MANIFEST_DIR").unwrap();
     let path = Path::new(&out_dir).join("src").join("sizes").join("constants.rs");
     let mut file = File::create(path).unwrap();
-    // let mut file = OpenOptions::new().write(true).create(true).truncate(true).open(path).unwrap();
 
     writeln!(file, "pub const String_SIZE: usize = {};", std::mem::size_of::<String>()).unwrap();
     writeln!(file, "pub const OsString_SIZE: usize = {};", std::mem::size_of::<OsString>()).unwrap();

@@ -4,30 +4,30 @@ use subprocess::PopenConfig;
 use subprocess::{Popen, PopenError};
 use std::mem::MaybeUninit;
 use std::mem;
-// mod sizes;
-// use sizes::String_extern_SIZE;
-// pub const String_extern_SIZE: usize = 24;
-
-// include!(concat!(env!("OUT_DIR"), "/sizes.rs"));
 
 pub mod sizes;
 
-// Tried:
-//   pub struct Str_extern{[u8; std::mem::size_of::<str>()]);
-// but got                                          ^^^ doesn't have a size known at compile-time
-// So we'll go with String for now.
-// If we really want str, we might try usize + *const u8, though C/Vale will
-// need to make sure the chars remain there while the pointer is alive.
 pub use crate::sizes::constants::String_SIZE;
 #[repr(C)]
 pub struct String_extern([u8; String_SIZE]);
 const_assert_eq!(std::mem::size_of::<String>(), String_SIZE);
+// Tried making a str struct:
+//   pub struct Str_extern{[u8; std::mem::size_of::<str>()]);
+// but got                                          ^^^ doesn't have a size known at compile-time
+// Which makes sense, str is more of a trait-ish thing... but isn't it always
+// a fat pointer that's 16ish bytes? Perhaps not.
+// We'll go with String for now, for sending over the boundary.
+// TODO: If we really want str, we could perhaps make a struct with usize + *const u8.
 
 pub use crate::sizes::constants::OsString_SIZE;
 #[repr(C)]
 pub struct OsString_extern([u8; OsString_SIZE]);
 const_assert_eq!(std::mem::size_of::<OsString>(), OsString_SIZE);
 
+pub use crate::sizes::constants::Vec_Ref_OsString_SIZE;
+#[repr(C)]
+pub struct Vec_Ref_OsString_extern([u8; std::mem::size_of::<Vec<&OsString>>()]);
+const_assert_eq!(std::mem::size_of::<Vec<&OsString>>(), Vec_Ref_OsString_SIZE);
 // Tried:
 // #[repr(C)]
 //   pub struct OsString_ref_slice_extern([u8; std::mem::size_of::<[&OsString_extern]>()]);
@@ -39,12 +39,8 @@ const_assert_eq!(std::mem::size_of::<OsString>(), OsString_SIZE);
 //   let argv_ref: &[&OsString] = unsafe { &*(argv_raw as *const [&OsString]) };
 // I got the error:                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
 //   cannot cast thin pointer `*const OsString_ref_slice_extern` to fat pointer `*const [&OsString]`
-// So settled on the above with the integer.
-
-pub use crate::sizes::constants::Vec_Ref_OsString_SIZE;
-#[repr(C)]
-pub struct Vec_Ref_OsString_extern([u8; std::mem::size_of::<Vec<&OsString>>()]);
-const_assert_eq!(std::mem::size_of::<Vec<&OsString>>(), Vec_Ref_OsString_SIZE);
+// All these problems went away when using Vec, which was nice.
+// TODO: If we want to send slices across, we might want to send around an integer and a pointer or something.
 
 pub use crate::sizes::constants::PopenConfig_SIZE;
 #[repr(C)]
@@ -61,9 +57,76 @@ pub use crate::sizes::constants::Result_Popen_PopenError_SIZE;
 pub struct Result_Popen_PopenError_extern([u8; std::mem::size_of::<Result<Popen, PopenError>>()]);
 const_assert_eq!(std::mem::size_of::<Result<Popen, PopenError>>(), Result_Popen_PopenError_SIZE);
 
+#[no_mangle]
+pub extern "C" fn PopenConfig_default_extern(
+    result_raw: *mut PopenConfig_extern,
+) {
+    let result_ptr: *mut PopenConfig =
+        unsafe { mem::transmute(result_raw) };
+    let result: PopenConfig =
+        PopenConfig::default();
+    unsafe { std::ptr::write(result_ptr, result) };
+}
 
-pub fn add(left: usize, right: usize) -> usize {
-    left + right
+#[no_mangle]
+pub extern "C" fn Vec_Ref_OsString_new(
+    result_raw: *mut Vec_Ref_OsString_extern,
+) {
+    let result_ptr: *mut Vec<&OsString> =
+        unsafe { mem::transmute(result_raw) };
+    let result: Vec<&OsString> =
+        Vec::new();
+    unsafe { std::ptr::write(result_ptr, result) };
+}
+
+#[no_mangle]
+pub extern "C" fn Vec_Ref_OsString_push(
+    self_raw: *mut Vec_Ref_OsString_extern,
+    element_raw: *const OsString_extern,
+) {
+    let self_ptr: *mut Vec<&OsString> =
+        unsafe { mem::transmute(self_raw) };
+    let self_ref: &mut Vec<&OsString> =
+        unsafe { mem::transmute(self_ptr) };
+    let element_ptr: *const OsString =
+        unsafe { mem::transmute(element_raw) };
+    let element_ref: &OsString =
+        unsafe { mem::transmute(element_ptr) };
+    self_ref.push(element_ref);
+}
+
+#[no_mangle]
+pub extern "C" fn String_into_OsString_extern(
+    self_raw: *const String_extern,
+    result_raw: *mut OsString_extern,
+) {
+    let self_ref: &OsString =
+        unsafe { mem::transmute(self_raw) };
+    let result_ptr: *mut OsString =
+        unsafe { mem::transmute(result_raw) };
+    let result = 
+        self_ref.into();
+    unsafe { std::ptr::write(result_ptr, result) };
+}
+
+
+#[no_mangle]
+pub extern "C" fn Popen_create_extern(
+    argv_raw: *const Vec_Ref_OsString_extern,
+    config_raw: *mut PopenConfig_extern,
+    result_raw: *mut Result_Popen_PopenError_extern,
+) {
+    let argv_ref: &Vec<&OsString> =
+        unsafe { mem::transmute(argv_raw) };
+    let config_ptr: *mut PopenConfig =
+        unsafe { mem::transmute(config_raw) };
+    let config: PopenConfig =
+        unsafe { std::ptr::read(config_ptr) };
+    let result_ptr: *mut Result<Popen, PopenError> =
+        unsafe { mem::transmute(result_raw) };
+    let result =
+        Popen::create(argv_ref, config);
+    unsafe { std::ptr::write(result_ptr, result) };
 }
 
 #[cfg(test)]
@@ -148,76 +211,3 @@ mod tests {
         assert_eq!(result.is_ok(), true);
     }
 }
-
-#[no_mangle]
-pub extern "C" fn PopenConfig_default_extern(
-    result_raw: *mut PopenConfig_extern,
-) {
-    let result_ptr: *mut PopenConfig =
-        unsafe { mem::transmute(result_raw) };
-    let result: PopenConfig =
-        PopenConfig::default();
-    unsafe { std::ptr::write(result_ptr, result) };
-}
-
-#[no_mangle]
-pub extern "C" fn Vec_Ref_OsString_new(
-    result_raw: *mut Vec_Ref_OsString_extern,
-) {
-    let result_ptr: *mut Vec<&OsString> =
-        unsafe { mem::transmute(result_raw) };
-    let result: Vec<&OsString> =
-        Vec::new();
-    unsafe { std::ptr::write(result_ptr, result) };
-}
-
-#[no_mangle]
-pub extern "C" fn Vec_Ref_OsString_push(
-    self_raw: *mut Vec_Ref_OsString_extern,
-    element_raw: *const OsString_extern,
-) {
-    let self_ptr: *mut Vec<&OsString> =
-        unsafe { mem::transmute(self_raw) };
-    let self_ref: &mut Vec<&OsString> =
-        unsafe { mem::transmute(self_ptr) };
-    let element_ptr: *const OsString =
-        unsafe { mem::transmute(element_raw) };
-    let element_ref: &OsString =
-        unsafe { mem::transmute(element_ptr) };
-    self_ref.push(element_ref);
-}
-
-#[no_mangle]
-pub extern "C" fn String_into_OsString_extern(
-    self_raw: *const String_extern,
-    result_raw: *mut OsString_extern,
-) {
-    let self_ref: &OsString =
-        unsafe { mem::transmute(self_raw) };
-    let result_ptr: *mut OsString =
-        unsafe { mem::transmute(result_raw) };
-    let result = 
-        self_ref.into();
-    unsafe { std::ptr::write(result_ptr, result) };
-}
-
-
-#[no_mangle]
-pub extern "C" fn Popen_create_extern(
-    argv_raw: *const Vec_Ref_OsString_extern,
-    config_raw: *mut PopenConfig_extern,
-    result_raw: *mut Result_Popen_PopenError_extern,
-) {
-    let argv_ref: &Vec<&OsString> =
-        unsafe { mem::transmute(argv_raw) };
-    let config_ptr: *mut PopenConfig =
-        unsafe { mem::transmute(config_raw) };
-    let config: PopenConfig =
-        unsafe { std::ptr::read(config_ptr) };
-    let result_ptr: *mut Result<Popen, PopenError> =
-        unsafe { mem::transmute(result_raw) };
-    let result =
-        Popen::create(argv_ref, config);
-    unsafe { std::ptr::write(result_ptr, result) };
-}
-
